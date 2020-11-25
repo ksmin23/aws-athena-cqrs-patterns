@@ -6,8 +6,11 @@ import json
 import os
 import logging
 import pprint
+from urllib.parse import urlparse
 
 import boto3
+import botocore
+
 
 LOGGER = logging.getLogger()
 if len(LOGGER.handlers) > 0:
@@ -18,7 +21,30 @@ if len(LOGGER.handlers) > 0:
 else:
   logging.basicConfig(level=logging.INFO)
 
-AWS_REGION_NAME=os.getenv('AWS_REGION_NAME', 'us-east-1')
+AWS_REGION_NAME = os.getenv('AWS_REGION_NAME', 'us-east-1')
+DOWNLOAD_URL_TTL = int(os.getenv('DOWNLOAD_URL_TTL', '3600'))
+
+def get_athena_query_result_location(query_execution_id):
+  athena_client = boto3.client('athena', region_name=AWS_REGION_NAME)
+  response = athena_client.get_query_execution(
+    QueryExecutionId=query_execution_id
+  )
+  output_location = response['QueryExecution']['ResultConfiguration']['OutputLocation']
+  return output_location
+
+
+def create_presigned_url(bucket_name, object_name, expiration=3600):
+  s3_client = boto3.client('s3', region_name=AWS_REGION_NAME)
+  try:
+    presigned_url = s3_client.generate_presigned_url('get_object',
+                                                 Params={'Bucket': bucket_name,
+                                                         'Key': object_name},
+                                                 ExpiresIn=expiration)
+  except botocore.exceptions.ClientError as ex:
+    LOGGER.error(ex)
+    return None
+
+  return presigned_url
 
 
 def lambda_handler(event, context):
@@ -29,17 +55,18 @@ def lambda_handler(event, context):
     LOGGER.info('athena query state: %s' % current_query_state)
     return
 
-  athena_client = boto3.client('athena', region_name=AWS_REGION_NAME)
-  response = athena_client.get_query_execution(
-    QueryExecutionId=event['detail']['queryExecutionId']
-  )
-
-  pprint.pprint(response) #debug
-
-  output_location = response['QueryExecution']['ResultConfiguration']['OutputLocation']
+  query_execution_id = event['detail']['queryExecutionId']
+  output_location = get_athena_query_result_location(query_execution_id)
   LOGGER.info(output_location)
-  #TODO: create presigned url
+
+  url_parse_result = urlparse(output_location, scheme='s3')
+  bucket_name, object_name = url_parse_result.netloc, url_parse_result.path.lstrip('/')
+  presigned_url = create_presigned_url(bucket_name, object_name, expiration=DOWNLOAD_URL_TTL)
+  LOGGER.info('presigned_url: %s' % presigned_url)
+
   #TODO: send email
+  # read requester's email from DynamoDB
+  # send email to requester
 
 
 if __name__ == '__main__':
@@ -47,11 +74,11 @@ if __name__ == '__main__':
 
   parser = argparse.ArgumentParser()
   parser.add_argument('--region-name', default='us-east-1',
-    help='aws region name')
+    help='aws region name: default=us-east-1')
   parser.add_argument('--query-execution-id', required=True,
     help='aws athena query execution id. ex: ce8826f3-6949-4405-81e5-392745da2c95')
   parser.add_argument('--work-group-name', default='primary',
-    help='aws athena work group name')
+    help='aws athena work group name: default=primary')
 
   options = parser.parse_args()
   AWS_REGION_NAME = options.region_name

@@ -46,7 +46,8 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       code=_lambda.Code.asset("./src/main/python/QueryResultsHandler"),
       environment={
         #TODO: MUST set appropriate environment variables for your workloads.
-        'AWS_REGION_NAME': core.Aws.REGION
+        'AWS_REGION_NAME': core.Aws.REGION,
+        'DOWNLOAD_URL_TTL': '3600'
       },
       timeout=core.Duration.minutes(5)
     )
