@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- encoding: utf-8 -*-
-# vim: tabstop=2 shiftwidth=2 softtabstop=2 expandtab
+#vim: tabstop=2 shiftwidth=2 softtabstop=2 expandtab
 
 from aws_cdk import (
   core,
+  aws_apigateway as apigateway,
   aws_ec2,
+  aws_events,
+  aws_events_targets,
   aws_iam,
-  aws_s3 as s3,
   aws_lambda as _lambda,
   aws_logs,
-  aws_events,
-  aws_events_targets
+  aws_s3 as s3
 )
 
 class AwsAthenaCqrsPatternsStack(core.Stack):
@@ -24,18 +25,58 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       is_default=True, #XXX: Whether to match the default VPC
       vpc_name=vpc_name)
 
-    # s3_bucket_name = self.node.try_get_context('s3_bucket_name')
-    # s3_bucket = s3.Bucket.from_bucket_name(self, id, s3_bucket_name)
-    s3_bucket_name_suffix = self.node.try_get_context('s3_bucket_name_suffix')
-    s3_bucket = s3.Bucket(self, 'AthenaQueryResultsBucket',
-      bucket_name='aws-athena-cqrs-workspace-{region}-{suffix}'.format(region=core.Aws.REGION,
-        suffix=s3_bucket_name_suffix))
+    s3_bucket_name = self.node.try_get_context('s3_bucket_name')
+    if s3_bucket_name:
+      s3_bucket = s3.Bucket.from_bucket_name(self, id, s3_bucket_name)
+    else:
+      s3_bucket_name_suffix = self.node.try_get_context('s3_bucket_name_suffix')
+      s3_bucket = s3.Bucket(self, 'AthenaQueryResultsBucket',
+        bucket_name='aws-athena-cqrs-workspace-{region}-{suffix}'.format(region=core.Aws.REGION,
+          suffix=s3_bucket_name_suffix))
 
-    s3_bucket.add_lifecycle_rule(prefix='query-results/', id='query-results',
-      abort_incomplete_multipart_upload_after=core.Duration.days(3),
-      expiration=core.Duration.days(7))
+      s3_bucket.add_lifecycle_rule(prefix='query-results/', id='query-results',
+        abort_incomplete_multipart_upload_after=core.Duration.days(3),
+        expiration=core.Duration.days(7))
 
     athena_work_group = self.node.try_get_context("athena_work_group_name")
+
+    # Query CommandHandler
+    query_executor_lambda_fn = _lambda.Function(self, "CommandHander",
+      runtime=_lambda.Runtime.PYTHON_3_7,
+      function_name="CommandHander",
+      handler="command_handler.lambda_handler",
+      description="athena query executor",
+      code=_lambda.Code.asset("./src/main/python/CommandHander"),
+      environment={
+        #TODO: MUST set appropriate environment variables for your workloads.
+        'AWS_REGION_NAME': core.Aws.REGION,
+        'ATHENA_QUERY_OUTPUT_BUCKET_NAME': s3_bucket.bucket_name
+      },
+      timeout=core.Duration.minutes(5)
+    )
+
+    managed_policy = aws_iam.ManagedPolicy.from_managed_policy_arn(self,
+      'AthenaFullAccessPolicy',
+      'arn:aws:iam::aws:policy/AmazonAthenaFullAccess')
+    query_executor_lambda_fn.role.add_managed_policy(managed_policy)
+
+    #XXX: When I run an Athena query, I get an "Access Denied" error
+    # https://aws.amazon.com/premiumsupport/knowledge-center/access-denied-athena/
+    query_executor_lambda_fn.add_to_role_policy(aws_iam.PolicyStatement(
+      effect=aws_iam.Effect.ALLOW,
+      resources=[s3_bucket.bucket_arn, "{}/*".format(s3_bucket.bucket_arn)],
+      actions=["s3:Get*",
+        "s3:List*",
+        "s3:AbortMultipartUpload",
+        "s3:PutObject"
+      ]))
+
+    query_executor_apigw = apigateway.LambdaRestApi(self, "QueryCommanderAPI",
+      handler=query_executor_lambda_fn,
+      endpoint_types=[apigateway.EndpointType.EDGE],
+      deploy=True,
+      deploy_options=apigateway.StageOptions(stage_name="v1")
+    )
 
     # QueryResultsHandler
     query_results_lambda_fn = _lambda.Function(self, "QueryResultsHandler",
@@ -51,11 +92,6 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       },
       timeout=core.Duration.minutes(5)
     )
-
-    managed_policy = aws_iam.ManagedPolicy.from_managed_policy_arn(self,
-      'AthenaFullAccessPolicy',
-      'arn:aws:iam::aws:policy/AmazonAthenaFullAccess')
-    query_results_lambda_fn.role.add_managed_policy(managed_policy)
 
     query_results_lambda_fn.add_to_role_policy(aws_iam.PolicyStatement(
       effect=aws_iam.Effect.ALLOW,

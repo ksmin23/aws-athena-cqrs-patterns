@@ -58,3 +58,22 @@ command.
  * `cdk docs`        open CDK documentation
 
 Enjoy!
+
+# Sample Request
+## Query Commander Handler
+
+```
+$ export API_URL=https://{restapi-id}.execute-api.{region}.amazonaws.com/{stage_name}
+$ curl -X POST ${API_URL}/?user=xyz@example.com \
+  -H 'Content-Type: application/json' \
+  -d'{
+  "QueryString": "SELECT dt, impressionid FROM impressions WHERE dt < '2009-04-12-14-00' AND dt >= '2009-04-12-13-00' ORDER BY dt DESC LIMIT 100",
+  "QueryExecutionContext": {
+    "Database": "hive_ads"
+  },
+  "ResultConfiguration": {
+  "OutputLocation": "s3://bucket-name/path/to/object/"
+  }
+}'
+```
+
