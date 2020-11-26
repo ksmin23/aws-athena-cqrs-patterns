@@ -23,6 +23,8 @@ else:
 
 AWS_REGION_NAME = os.getenv('AWS_REGION_NAME', 'us-east-1')
 DOWNLOAD_URL_TTL = int(os.getenv('DOWNLOAD_URL_TTL', '3600'))
+DDB_TABLE_NAME = os.getenv('DDB_TABLE_NAME')
+
 
 def get_athena_query_result_location(query_execution_id):
   athena_client = boto3.client('athena', region_name=AWS_REGION_NAME)
@@ -66,7 +68,21 @@ def lambda_handler(event, context):
 
   #TODO: send email
   # read requester's email from DynamoDB
-  # send email to requester
+  dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION_NAME)
+  ddb_table = dynamodb.Table(DDB_TABLE_NAME)
+  try:
+    #TODO: should handle ProvisionedThroughputExceededException
+    ddb_attributes = ddb_table.query(
+        IndexName='query_id',
+        KeyConditionExpression=Key('query_id').eq(query_execution_id)
+    )
+  except ClientError as ex:
+    LOGGER.error(ex.response['Error']['Message'])
+  else:
+    if 'Items' in ddb_attributes and len(ddb_attributes['Items']) == 1:
+      attributes = ddb_attributes['Items'][0]
+      user_id = attributes['user_id']
+      # send email to requester
 
 
 if __name__ == '__main__':
@@ -79,9 +95,12 @@ if __name__ == '__main__':
     help='aws athena query execution id. ex: ce8826f3-6949-4405-81e5-392745da2c95')
   parser.add_argument('--work-group-name', default='primary',
     help='aws athena work group name: default=primary')
+  parser.add_argument('--dynamodb-table', required=True,
+    help='dynamodb table')
 
   options = parser.parse_args()
   AWS_REGION_NAME = options.region_name
+  DDB_TABLE_NAME = options.dynamodb_table
 
   event_template = {
     "account": "111122223333",

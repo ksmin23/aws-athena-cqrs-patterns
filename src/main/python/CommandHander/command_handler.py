@@ -23,6 +23,7 @@ else:
 
 AWS_REGION_NAME = os.getenv('REGION_NAME', 'us-east-1')
 ATHENA_QUERY_OUTPUT_BUCKET_NAME = os.getenv('ATHENA_QUERY_OUTPUT_BUCKET_NAME')
+DDB_TABLE_NAME = os.getenv('DDB_TABLE_NAME')
 
 
 def lambda_handler(event, context):
@@ -57,7 +58,14 @@ def lambda_handler(event, context):
     query_execution_id = response['QueryExecutionId']
     LOGGER.info('QueryExecutionId: %s' % query_execution_id)
 
-    #TODO: insert (user-email, query-id) into DynamoDB
+    dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION_NAME)
+    ddb_table = dynamodb.Table(DDB_TABLE_NAME)
+    #TODO: should handle ProvisionedThroughputExceededException
+    ddb_table.put_item(Item={
+      'user_id': req_user_id,
+      'query_id': query_execution_id,
+      'query_status': 'QUEUED'
+    })
 
     response = {
       'statusCode': 200,
@@ -83,11 +91,14 @@ if __name__ == '__main__':
     help='aws athena query output location. ex) s3://bucket-name/path/to/object')
   parser.add_argument('--print-query-string', action='store_true',
     help='print aws athena query string')
+  parser.add_argument('--dynamodb-table', required=True,
+    help='dynamodb table')
 
   options = parser.parse_args()
   AWS_REGION_NAME = options.region_name
   url_parse_result = urlparse(options.output_location, scheme='s3')
   ATHENA_QUERY_OUTPUT_BUCKET_NAME = url_parse_result.netloc
+  DDB_TABLE_NAME = options.dynamodb_table
 
   query_string = '''SELECT dt, impressionid
 FROM impressions

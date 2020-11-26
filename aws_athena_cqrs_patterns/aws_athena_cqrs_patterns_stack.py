@@ -47,6 +47,11 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       write_capacity=5
     )
 
+    ddb_table.add_global_secondary_index(index_name='query_id',
+      partition_key=dynamodb.Attribute(name="query_id", type=dynamodb.AttributeType.STRING),
+      projection_type=dynamodb.ProjectionType.KEYS_ONLY
+    )
+
     athena_work_group = self.node.try_get_context("athena_work_group_name")
 
     # Query CommandHandler
