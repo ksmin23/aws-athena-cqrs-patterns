@@ -5,6 +5,7 @@
 from aws_cdk import (
   core,
   aws_apigateway as apigateway,
+  aws_dynamodb as dynamodb,
   aws_ec2,
   aws_events,
   aws_events_targets,
@@ -38,6 +39,14 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
         abort_incomplete_multipart_upload_after=core.Duration.days(3),
         expiration=core.Duration.days(7))
 
+    ddb_table = dynamodb.Table(self, "AthenaQueryStatusPerUserDDBTable",
+      table_name="AthenaQueryStatusPerUser",
+      partition_key=dynamodb.Attribute(name="user_id", type=dynamodb.AttributeType.STRING),
+      billing_mode=dynamodb.BillingMode.PROVISIONED,
+      read_capacity=15,
+      write_capacity=5
+    )
+
     athena_work_group = self.node.try_get_context("athena_work_group_name")
 
     # Query CommandHandler
@@ -50,7 +59,8 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       environment={
         #TODO: MUST set appropriate environment variables for your workloads.
         'AWS_REGION_NAME': core.Aws.REGION,
-        'ATHENA_QUERY_OUTPUT_BUCKET_NAME': s3_bucket.bucket_name
+        'ATHENA_QUERY_OUTPUT_BUCKET_NAME': s3_bucket.bucket_name,
+        'DDB_TABLE_NAME': ddb_table.table_name
       },
       timeout=core.Duration.minutes(5)
     )
@@ -71,6 +81,35 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
         "s3:PutObject"
       ]))
 
+    ddb_table_rw_policy_statement = aws_iam.PolicyStatement(
+      effect=aws_iam.Effect.ALLOW,
+      resources=[ddb_table.table_arn],
+      actions=[
+        "dynamodb:BatchGetItem",
+        "dynamodb:Describe*",
+        "dynamodb:List*",
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dax:Describe*",
+        "dax:List*",
+        "dax:GetItem",
+        "dax:BatchGetItem",
+        "dax:Query",
+        "dax:Scan",
+        "dax:BatchWriteItem",
+        "dax:DeleteItem",
+        "dax:PutItem",
+        "dax:UpdateItem"
+      ]
+    )
+
+    query_executor_lambda_fn.add_to_role_policy(ddb_table_rw_policy_statement)
+
     query_executor_apigw = apigateway.LambdaRestApi(self, "QueryCommanderAPI",
       handler=query_executor_lambda_fn,
       endpoint_types=[apigateway.EndpointType.EDGE],
@@ -88,7 +127,8 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       environment={
         #TODO: MUST set appropriate environment variables for your workloads.
         'AWS_REGION_NAME': core.Aws.REGION,
-        'DOWNLOAD_URL_TTL': '3600'
+        'DOWNLOAD_URL_TTL': '3600',
+        'DDB_TABLE_NAME': ddb_table.table_name
       },
       timeout=core.Duration.minutes(5)
     )
@@ -101,6 +141,8 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
         "s3:PutObjectAcl",
         "s3:PutObjectVersionAcl"
       ]))
+
+    query_results_lambda_fn.add_to_role_policy(ddb_table_rw_policy_statement)
 
     log_group = aws_logs.LogGroup(self, "QueryResultsHandlerLogGroup",
       log_group_name="/aws/lambda/QueryResultsHandler",
