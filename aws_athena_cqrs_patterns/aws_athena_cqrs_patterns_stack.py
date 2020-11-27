@@ -44,7 +44,8 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
       partition_key=dynamodb.Attribute(name="user_id", type=dynamodb.AttributeType.STRING),
       billing_mode=dynamodb.BillingMode.PROVISIONED,
       read_capacity=15,
-      write_capacity=5
+      write_capacity=5,
+      time_to_live_attribute="expired_at"
     )
 
     ddb_table.add_global_secondary_index(index_name='query_id',
