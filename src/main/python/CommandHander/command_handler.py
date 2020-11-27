@@ -23,8 +23,8 @@ else:
 
 AWS_REGION_NAME = os.getenv('REGION_NAME', 'us-east-1')
 ATHENA_QUERY_OUTPUT_BUCKET_NAME = os.getenv('ATHENA_QUERY_OUTPUT_BUCKET_NAME')
+ATHENA_WORK_GROUP_NAME = os.getenv('ATHENA_WORK_GROUP_NAME', 'primary')
 DDB_TABLE_NAME = os.getenv('DDB_TABLE_NAME')
-
 
 def lambda_handler(event, context):
   LOGGER.info(event)
@@ -46,6 +46,15 @@ def lambda_handler(event, context):
     response = {
       'statusCode': 400,
       'body': json.dumps({'error': 'invalid output_location'}),
+      'isBase64Encoded': False
+    }
+    return response
+
+  athena_work_group = query.get('WorkGroup', ATHENA_WORK_GROUP_NAME)
+  if athena_work_group != ATHENA_WORK_GROUP_NAME:
+    response = {
+      'statusCode': 400,
+      'body': json.dumps({'error': 'invalid athena work group'}),
       'isBase64Encoded': False
     }
     return response
@@ -89,15 +98,20 @@ if __name__ == '__main__':
     help='aws region name: default=us-east-1')
   parser.add_argument('--output-location', required=True,
     help='aws athena query output location. ex) s3://bucket-name/path/to/object')
+  parser.add_argument('--work-group-name', default='primary',
+    help='aws athena work group name: default=primary')
   parser.add_argument('--print-query-string', action='store_true',
     help='print aws athena query string')
   parser.add_argument('--dynamodb-table', required=True,
     help='dynamodb table')
+  parser.add_argument('--receiver-email', default='xyz@example.com',
+    help='receiver email address')
 
   options = parser.parse_args()
   AWS_REGION_NAME = options.region_name
   url_parse_result = urlparse(options.output_location, scheme='s3')
   ATHENA_QUERY_OUTPUT_BUCKET_NAME = url_parse_result.netloc
+  ATHENA_WORK_GROUP_NAME = options.work_group_name
   DDB_TABLE_NAME = options.dynamodb_table
 
   query_string = '''SELECT dt, impressionid
@@ -164,10 +178,10 @@ ORDER BY  dt DESC LIMIT 100'''
       'X-Forwarded-Proto': ['https']
     },
     'queryStringParameters': {
-      'user': 'xyz@example.com'
+      'user': options.receiver_email
     },
     'multiValueQueryStringParameters': {
-      'user': ['xyz@example.com']
+      'user': [options.receiver_email]
     },
     'pathParameters': None,
     'stageVariables': None,
