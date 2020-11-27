@@ -10,7 +10,10 @@ from urllib.parse import urlparse
 
 import boto3
 import botocore
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import (
+  Key,
+  Attr
+)
 
 LOGGER = logging.getLogger()
 if len(LOGGER.handlers) > 0:
@@ -110,6 +113,24 @@ def get_user_id_by_query_id(table, query_execution_id):
   return record
 
 
+def update_query_status(table, user_id, query_execution_id, query_state):
+  dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION_NAME)
+  ddb_table = dynamodb.Table(table)
+  try:
+    response = ddb_table.update_item(
+      Key={'user_id': user_id},
+      UpdateExpression='SET query_status = :query_status',
+      ConditionExpression=Attr('query_id').eq(query_execution_id),
+      ExpressionAttributeValues={':query_status': query_state},
+      ReturnValues='UPDATED_NEW')
+  except botocore.exceptions.ClientError as ex:
+    if ex.response['Error']['Code'] == 'ConditionalCheckFailedException':
+      LOGGER.info(ex.response['Error']['Message'])
+    else:
+      raise ex
+  return response
+
+
 def get_athena_query_result_location(query_execution_id):
   athena_client = boto3.client('athena', region_name=AWS_REGION_NAME)
   response = athena_client.get_query_execution(
@@ -164,6 +185,10 @@ def lambda_handler(event, context):
     html = gen_html(record)
     subject = '''Athena Query Results is ready'''
     send_email(EMAIL_FROM_ADDRESS, [user_id], subject, html)
+    try:
+      update_query_status(DDB_TABLE_NAME, user_id, query_execution_id, current_query_state)
+    except Exception as ex:
+      LOGGER.error(ex)
   LOGGER.info("end")
 
 
