@@ -1,6 +1,6 @@
 
 # AWS Athena CQRS Pattern
-AWS Athena를 활용한 CQRS 패턴으로 구현 예제
+AWS Athena를 활용한 [CQRS 패턴](https://microservices.io/patterns/data/cqrs.html) 구현 예제
 - RESTful API로 받은 aws athena query 실행 요청은 받은 후, query 실행 결과를 다운로드 받을 수 있는 링크를 email로 전송해 주는 예제
 
 ## Architecture
