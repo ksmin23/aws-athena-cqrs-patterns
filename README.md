@@ -91,5 +91,5 @@ $ curl -X POST ${API_URL}/?user=xyz@example.com \
 ## Query Excution Results
 AWS Athena 쿼리 실행이 완료 되면, e-mail로 쿼리 결과 파일을 다운로드 받을 수 있는 link를 받을 수 있다.
 
-*** Figure 1. *** AWS Athena 쿼리 실행 결과 다운로드 링크 전송 e-mail
+**Figure 1.** AWS Athena 쿼리 실행 결과 다운로드 링크 전송 e-mail
 ![athena-cqrs-pattern-email-screenshot](./assets/athena-cqrs-pattern-email-screenshot.png)
