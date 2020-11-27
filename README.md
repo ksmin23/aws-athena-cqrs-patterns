@@ -71,10 +71,82 @@ cdk를 실행할 때 사용할 IAM User를 생성한 후, `~/.aws/config`에 등
 Enjoy!
 
 # Demo
+## Preparation
+1. 현재 AWS Account에서 사용 중인 Region의 S3에 샘플 데이터가 들어 있는지 확인한다.
+예를 들어 `us-east-1` 리전을 사용 중 이라면, `my-region`을 `us-east-1`으로 변경한다.
+
+  ```shell script
+  $ aws s3 ls s3://{my-region}.elasticmapreduce/samples/hive-ads/tables/impressions/
+
+      PRE dt=2009-04-12-13-00/
+      PRE dt=2009-04-12-13-05/
+      PRE dt=2009-04-12-13-10/
+      PRE dt=2009-04-12-13-15/
+      PRE dt=2009-04-12-13-20/
+      PRE dt=2009-04-12-14-00/
+      PRE dt=2009-04-12-14-05/
+      PRE dt=2009-04-12-14-10/
+      PRE dt=2009-04-12-14-15/
+      PRE dt=2009-04-12-14-20/
+      PRE dt=2009-04-12-15-00/
+      PRE dt=2009-04-12-15-05/
+  ```
+
+2. AWS Athena 웹 콘솔에 접속한 후, 다음과 같이 `hive_ads`라는 샘플 데이터를 위한 database를 생성한다.
+  
+  ```
+  create database hive_ads;
+  ```
+
+3. 샘플 데이터를 처리할 Athena 테이블을 생성한다.
+
+  ```
+  CREATE EXTERNAL TABLE impressions (
+      requestBeginTime string,
+      adId string,
+      impressionId string,
+      referrer string,
+      userAgent string,
+      userCookie string,
+      ip string,
+      number string,
+      processId string,
+      browserCookie string,
+      requestEndTime string,
+      timers struct<modelLookup:string, requestTime:string>,
+      threadId string,
+      hostname string,
+      sessionId string)
+  PARTITIONED BY (dt string)
+  ROW FORMAT  serde 'org.apache.hive.hcatalog.data.JsonSerDe'
+      with serdeproperties ( 'paths'='requestBeginTime, adId, impressionId, referrer, userAgent, userCookie, ip' )
+  LOCATION 's3://{my-region}.elasticmapreduce/samples/hive-ads/tables/impressions/';
+  ```
+
+  `my-region`을 현재 사용하고 있는 AWS Region으로 변경한다. 예를 들어, `us-east-1` 리전을 사용 중이라면,
+  **LOCATION** 절에서 `s3://us-east-1.elasticmapreduce/samples/hive-ads/tables/impressions/`으로 변경합니다.
+
 ## Send Athena Query
 
 ```
 $ export API_URL=https://{restapi-id}.execute-api.{region}.amazonaws.com/{stage_name}
+$ curl -X POST ${API_URL}/?user={email-address} \
+  -H 'Content-Type: application/json' \
+  -d'{
+    "QueryString": "{query-string}",
+    "QueryExecutionContext": {
+      "Database": "{database}"
+    },
+    "ResultConfiguration": {
+      "OutputLocation": "s3://bucket-name/path/to/object/"
+    }
+  }'
+```
+
+예를 들어, `hive_ads.impressions` 테이블에서 특정 시간 동안의 `impressionid` 중 상위 100 개를 계산하는 쿼리를 수행하고자 하는 경우에 다음과 같이 할 수 있다.
+
+```
+$ export API_URL=https://ewv0mp92bz.execute-api.us-east-1.amazonaws.com/v1
 $ curl -X POST ${API_URL}/?user=xyz@example.com \
   -H 'Content-Type: application/json' \
   -d'{
@@ -83,7 +155,7 @@ $ curl -X POST ${API_URL}/?user=xyz@example.com \
       "Database": "hive_ads"
     },
     "ResultConfiguration": {
-      "OutputLocation": "s3://bucket-name/path/to/object/"
+      "OutputLocation": "s3://aws-athena-cqrs-workspace-us-east-1-v89ca8y9vj/query-results/"
     }
   }'
 ```
