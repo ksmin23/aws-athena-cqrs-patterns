@@ -90,6 +90,26 @@ def send_email(from_addr, to_addrs, subject, html_body):
   return ret
 
 
+def get_user_id_by_query_id(table, query_execution_id):
+  dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION_NAME)
+  ddb_table = dynamodb.Table(table)
+  try:
+    #TODO: should handle ProvisionedThroughputExceededException
+    ddb_attributes = ddb_table.query(
+      IndexName='query_id',
+      KeyConditionExpression=Key('query_id').eq(query_execution_id)
+    )
+  except ClientError as ex:
+    LOGGER.error(ex.response['Error']['Message'])
+    #TODO: send alarm by sns
+    raise ex
+  else:
+    record = {'query_id': query_execution_id}
+    if 'Items' in ddb_attributes and len(ddb_attributes['Items']) == 1:
+      record = dict(ddb_attributes['Items'][0])
+  return record
+
+
 def get_athena_query_result_location(query_execution_id):
   athena_client = boto3.client('athena', region_name=AWS_REGION_NAME)
   response = athena_client.get_query_execution(
@@ -133,31 +153,18 @@ def lambda_handler(event, context):
   presigned_url = create_presigned_url(bucket_name, object_name, expiration=DOWNLOAD_URL_TTL)
   LOGGER.info('presigned_url: %s' % presigned_url)
 
-  #TODO: send email
-  # read requester's email from DynamoDB
-  dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION_NAME)
-  ddb_table = dynamodb.Table(DDB_TABLE_NAME)
   try:
-    #TODO: should handle ProvisionedThroughputExceededException
-    ddb_attributes = ddb_table.query(
-        IndexName='query_id',
-        KeyConditionExpression=Key('query_id').eq(query_execution_id)
-    )
-  except ClientError as ex:
-    LOGGER.error(ex.response['Error']['Message'])
-    #TODO: send alarm by sns
+    record = get_user_id_by_query_id(DDB_TABLE_NAME, query_execution_id)
+  except Exception as ex:
     raise ex
   else:
-    if 'Items' in ddb_attributes and len(ddb_attributes['Items']) == 1:
-      record = dict(ddb_attributes['Items'][0])
-      user_id = record['user_id']
-      LOGGER.info(record) #XXX: debug
-      # send email to requester
-      record['link'] = presigned_url
-      html = gen_html(record)
-      subject = '''Athena Query Results is ready'''
-      send_email(EMAIL_FROM_ADDRESS, [user_id], subject, html)
-      LOGGER.info("end")
+    # send email to requester
+    record['link'] = presigned_url
+    user_id = record.get('user_id', EMAIL_FROM_ADDRESS)
+    html = gen_html(record)
+    subject = '''Athena Query Results is ready'''
+    send_email(EMAIL_FROM_ADDRESS, [user_id], subject, html)
+  LOGGER.info("end")
 
 
 if __name__ == '__main__':
@@ -207,5 +214,6 @@ if __name__ == '__main__':
     try:
       lambda_handler(event, {})
     except Exception:
-      pass
+      import traceback
+      traceback.print_exc()
 
