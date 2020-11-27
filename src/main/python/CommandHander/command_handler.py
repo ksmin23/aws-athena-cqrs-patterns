@@ -6,6 +6,8 @@ import sys
 import os
 import json
 import logging
+import math
+import datetime
 from urllib.parse import urlparse
 
 import boto3
@@ -69,11 +71,15 @@ def lambda_handler(event, context):
 
     dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION_NAME)
     ddb_table = dynamodb.Table(DDB_TABLE_NAME)
+
+    expired_date = datetime.datetime.utcnow() + datetime.timedelta(days=7)
     #TODO: should handle ProvisionedThroughputExceededException
     ddb_table.put_item(Item={
       'user_id': req_user_id,
       'query_id': query_execution_id,
-      'query_status': 'QUEUED'
+      'query_status': 'QUEUED',
+      #XXX: The TTL attribute’s value must be a timestamp in Unix epoch time format in seconds.
+      'expired_at': math.ceil(expired_date.timestamp())
     })
 
     response = {
