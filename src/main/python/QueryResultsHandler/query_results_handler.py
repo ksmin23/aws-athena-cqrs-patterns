@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import boto3
 import botocore
-
+from boto3.dynamodb.conditions import Key
 
 LOGGER = logging.getLogger()
 if len(LOGGER.handlers) > 0:
@@ -24,6 +24,70 @@ else:
 AWS_REGION_NAME = os.getenv('AWS_REGION_NAME', 'us-east-1')
 DOWNLOAD_URL_TTL = int(os.getenv('DOWNLOAD_URL_TTL', '3600'))
 DDB_TABLE_NAME = os.getenv('DDB_TABLE_NAME')
+EMAIL_FROM_ADDRESS = os.getenv('EMAIL_FROM_ADDRESS')
+
+
+def gen_html(elem):
+  HTML_FORMAT = '''<!DOCTYPE html>
+<html>
+<head>
+<style>
+table {{
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+}}
+td, th {{
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 8px;
+}}
+tr:nth-child(even) {{
+  background-color: #dddddd;
+}}
+</style>
+</head>
+<body>
+<h2>Your Query Results can be downlodable</h2>
+<table>
+  <tr>
+    <th>key</th>
+    <th>value</th>
+  </tr>
+  <tr>
+    <td>query_id</th>
+    <td>{query_id}</td>
+  </tr>
+  <tr>
+    <td>link</th>
+    <td>{link}</td>
+  </tr>
+</table>
+</body>
+</html>'''
+
+  html_doc = HTML_FORMAT.format(query_id=elem['query_id'],
+    link=elem['link'])
+  return html_doc
+
+
+def send_email(from_addr, to_addrs, subject, html_body):
+  ses_client = boto3.client('ses', region_name=AWS_REGION_NAME)
+  ret = ses_client.send_email(Destination={'ToAddresses': to_addrs},
+    Message={'Body': {
+        'Html': {
+          'Charset': 'UTF-8',
+          'Data': html_body
+        }
+      },
+      'Subject': {
+        'Charset': 'UTF-8',
+        'Data': subject
+      }
+    },
+    Source=from_addr
+  )
+  return ret
 
 
 def get_athena_query_result_location(query_execution_id):
@@ -51,7 +115,10 @@ def create_presigned_url(bucket_name, object_name, expiration=3600):
 
 def lambda_handler(event, context):
   LOGGER.debug(event)
+
   current_query_state = event['detail']['currentState']
+  if current_query_state == 'FAILED':
+    raise RuntimeError('Athena Query is {}'.format(current_query_state))
   if current_query_state != 'SUCCEEDED':
     #TODO: send alert by sns
     LOGGER.info('athena query state: %s' % current_query_state)
@@ -78,11 +145,19 @@ def lambda_handler(event, context):
     )
   except ClientError as ex:
     LOGGER.error(ex.response['Error']['Message'])
+    #TODO: send alarm by sns
+    raise ex
   else:
     if 'Items' in ddb_attributes and len(ddb_attributes['Items']) == 1:
-      attributes = ddb_attributes['Items'][0]
-      user_id = attributes['user_id']
+      record = dict(ddb_attributes['Items'][0])
+      user_id = record['user_id']
+      LOGGER.info(record) #XXX: debug
       # send email to requester
+      record['link'] = presigned_url
+      html = gen_html(record)
+      subject = '''Athena Query Results is ready'''
+      send_email(EMAIL_FROM_ADDRESS, [user_id], subject, html)
+      LOGGER.info("end")
 
 
 if __name__ == '__main__':
@@ -96,11 +171,14 @@ if __name__ == '__main__':
   parser.add_argument('--work-group-name', default='primary',
     help='aws athena work group name: default=primary')
   parser.add_argument('--dynamodb-table', required=True,
-    help='dynamodb table')
+    help='aws dynamodb table')
+  parser.add_argument('--sender-email', required=True,
+    help='sender email address')
 
   options = parser.parse_args()
   AWS_REGION_NAME = options.region_name
   DDB_TABLE_NAME = options.dynamodb_table
+  EMAIL_FROM_ADDRESS = options.sender_email
 
   event_template = {
     "account": "111122223333",
@@ -126,5 +204,8 @@ if __name__ == '__main__':
   for query_state in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
     event = dict(event_template)
     event['detail']['currentState'] = query_state
-    lambda_handler(event, {})
+    try:
+      lambda_handler(event, {})
+    except Exception:
+      pass
 

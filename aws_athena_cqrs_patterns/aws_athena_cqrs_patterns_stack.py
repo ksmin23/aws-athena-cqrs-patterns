@@ -55,6 +55,7 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
     athena_work_group = self.node.try_get_context("athena_work_group_name")
 
     # Query CommandHandler
+    EMAIL_FROM_ADDRESS = self.node.try_get_context('email_from_address')
     query_executor_lambda_fn = _lambda.Function(self, "CommandHander",
       runtime=_lambda.Runtime.PYTHON_3_7,
       function_name="CommandHander",
@@ -65,7 +66,9 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
         #TODO: MUST set appropriate environment variables for your workloads.
         'AWS_REGION_NAME': core.Aws.REGION,
         'ATHENA_QUERY_OUTPUT_BUCKET_NAME': s3_bucket.bucket_name,
-        'DDB_TABLE_NAME': ddb_table.table_name
+        'ATHENA_WORK_GROUP_NAME': athena_work_group,
+        'DDB_TABLE_NAME': ddb_table.table_name,
+        'EMAIL_FROM_ADDRESS': EMAIL_FROM_ADDRESS
       },
       timeout=core.Duration.minutes(5)
     )

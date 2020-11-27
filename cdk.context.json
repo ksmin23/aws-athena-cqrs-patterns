@@ -2,4 +2,5 @@
   "vpc_name": "Your-VPC-Name",
   "s3_bucket_name_suffix": "Your-S3-Bucket-Name-Suffix",
   "athena_work_group_name": "Your-Athena-Work-Group-Name",
+  "email_from_address": "Your-Sender-Email-Addr"
 }
