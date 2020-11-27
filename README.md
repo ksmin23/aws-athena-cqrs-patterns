@@ -22,8 +22,8 @@ cdk를 실행할 때 사용할 IAM User를 생성한 후, `~/.aws/config`에 등
 2. 아래와 같이 소스 코드를 git clone 한 후에, cdk 배포 환경 구성을 한다.
 
     ```shell script
-    $ git clone https://github.com/ksmin23/aws-rss-feed-trans-bot.git
-    $ cd aws-rss-feed-trans-bot
+    $ git clone https://github.com/ksmin23/aws-athena-cqrs-patterns.git
+    $ cd aws-athena-cqrs-patterns
     $ python3 -m venv .env
     $ source .env/bin/activate
     (.env) $ pip install -r requirements.txt
