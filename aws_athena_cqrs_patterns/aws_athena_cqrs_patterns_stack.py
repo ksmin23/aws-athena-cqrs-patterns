@@ -28,7 +28,7 @@ class AwsAthenaCqrsPatternsStack(core.Stack):
 
     s3_bucket_name = self.node.try_get_context('s3_bucket_name')
     if s3_bucket_name:
-      s3_bucket = s3.Bucket.from_bucket_name(self, id, s3_bucket_name)
+      s3_bucket = s3.Bucket.from_bucket_name(self, 'AthenaQueryResultsBucket', s3_bucket_name)
     else:
       s3_bucket_name_suffix = self.node.try_get_context('s3_bucket_name_suffix')
       s3_bucket = s3.Bucket(self, 'AthenaQueryResultsBucket',
